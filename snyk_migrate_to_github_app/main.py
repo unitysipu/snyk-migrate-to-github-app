@@ -12,6 +12,7 @@ from typing_extensions import Annotated
 
 # ===== CONSTANTS =====
 
+MIGRATABLE_INTEGRATION_TYPES = ["github", "github-enterprise"]
 SNYK_V1_API_BASE_URL = "https://snyk.io/api/v1"
 SNYK_V1_API_BASE_URL_AU = "https://api.au.snyk.io/v1"
 SNYK_V1_API_BASE_URL_EU = "https://api.eu.snyk.io/v1/"
@@ -55,7 +56,13 @@ def main(  # pylint: disable=too-many-arguments
         bool,
         typer.Option(help="Print names of targets to be migrated without migrating"),
     ] = False,
-    include_github_targets: Annotated[
+    integration_type: Annotated[
+        str,
+        typer.Option(
+            help="Type of integration to migrate, either 'github' or 'github-enterprise'"
+        ),
+    ] = "github-enterprise",
+    migrate_all_integrations: Annotated[
         bool,
         typer.Option(
             help="Migrate both github and github-enterprise projects, default is only github-enterprise"
@@ -72,13 +79,24 @@ def main(  # pylint: disable=too-many-arguments
         print("Must me either 'eu' or 'au'")
         return
 
-    if verify_org_integrations(snyk_token, org_id, tenant=tenant):
-        targets = get_all_targets(snyk_token, org_id, tenant=tenant)
+    if integration_type not in MIGRATABLE_INTEGRATION_TYPES:
+        print(f"Invalid integration type: {integration_type}")
+        print(f"integration type must be one of {MIGRATABLE_INTEGRATION_TYPES}")
+        return
 
-        if include_github_targets:
-            targets.extend(
-                get_all_targets(snyk_token, org_id, origin="github", tenant=tenant)
-            )
+    if verify_org_integrations(snyk_token, org_id, tenant=tenant):
+        targets = get_all_targets(
+            snyk_token, org_id, origin=integration_type, tenant=tenant
+        )
+
+        if migrate_all_integrations:
+            for i_type in MIGRATABLE_INTEGRATION_TYPES:
+                if i_type == integration_type:
+                    continue
+
+                targets.extend(
+                    get_all_targets(snyk_token, org_id, origin=i_type, tenant=tenant)
+                )
 
         if dry_run:
             dry_run_targets(targets)
@@ -123,6 +141,7 @@ def verify_org_integrations(snyk_token, org_id, tenant=""):
         return False
 
     integrations = json.loads(response.content)
+    print(f"Found integrations: {integrations}")
 
     if "github-enterprise" not in integrations and "github" not in integrations:
 
