@@ -231,6 +231,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
     def organize_targets_by_name(self, targets: list) -> dict:
         """
         Helper function to collect target URLs or displaynames from a list of targets
+        This allows doing quick lookups for existing targets by URL or if not available, by name
 
         Args:
             targets (list): List of targets to collect URLs from
@@ -289,7 +290,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         the github-cloud-app integration, this function will filter out those targets.
 
         Args:
-        org_id (str): Snyk Organization ID
+        org (dict): Snyk Organization object
         org_integrations (dict): Snyk integrations for an organization collected through get_org_integrations
         Return: a list of valid targets to migrate
         """
@@ -305,8 +306,9 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         github_cloud_targets = self.get_targets_by_origin(org_id, "github-cloud-app")
         organized_cloud_targets = self.organize_targets_by_name(github_cloud_targets)
 
-        print("Found existing github-cloud-app targets:")
-        print(organized_cloud_targets)
+        if github_cloud_targets:
+            print(f"github-cloud-app targets for {org_id}:")
+            print(organized_cloud_targets)
 
         print(f"Searching for targets in allowed origins: {allowed_origins}")
 
@@ -386,11 +388,10 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                     )
                     self.migrated.append(target)
                 else:
+                    print(f"Error migrating target: {target}: {vars(res)}")
                     self.failed.append(target)
             except requests.HTTPError as exc:
-                print(
-                    f"ERROR: Failed to migrate target: {target['id']} {target['attributes']['display_name']}: {exc}"
-                )
+                print(f"ERROR: Failed to migrate target: {target}: {exc}")
                 self.failed.append(target)
 
     @staticmethod
@@ -458,7 +459,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
 
 
 @app.command()
-def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-local-variables
+def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-locals
     snyk_token: Annotated[
         str,
         typer.Option(
@@ -556,25 +557,18 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
                 migratable_targets = snyk.find_migratable_targets(
                     org_id, org_integrations, allowed_origins=allowed_origins
                 )
+                if not migratable_targets:
+                    print("No targets to migrate for org: {slug}")
+                    continue
+                if dry_run:
+                    snyk.dry_run_targets(migratable_targets)
+                    continue
+                snyk.migrate_targets(org_id, migratable_targets)
         except ValueError as exc:
             print(f"Failed to migrate: {org_id}: {exc}")
             raise
     except (requests.ConnectionError, requests.HTTPError) as exc:
-        print(f"Failed to retrieve org integrations for org ID: {org_id}: {exc}")
-        raise ValueError(
-            f"Failed to retrieve org integrations for org ID: {org_id}"
-        ) from exc
-
-    if dry_run:
-        snyk.dry_run_targets(migratable_targets)
-        return
-
-    try:
-        print("migrating")
-        # snyk.migrate_targets(org_id, migratable_targets)
-    except (requests.ConnectionError, requests.HTTPError) as exc:
-        print(f"Failed to migrate targets: {exc}")
-        raise ValueError(f"Failed to migrate targets {exc}") from exc
+        raise ValueError(f"Failed to migrate targets: {exc}") from exc
 
 
 def run():
