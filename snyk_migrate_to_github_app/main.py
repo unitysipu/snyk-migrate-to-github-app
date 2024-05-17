@@ -322,19 +322,52 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         for gh_t in github_targets:
             url = gh_t["attributes"]["url"]
             display_name = gh_t["attributes"]["display_name"]
-            if url in organized_cloud_targets["url"]:
+            is_private = gh_t["attributes"]["is_private"]
+
+            # don't migrate public targets
+            if not is_private:
+                print(
+                    f"Skipping public target: {display_name} in org: {org_id}, not private"
+                )
+                self.ignored.append(gh_t)
+                continue
+
+            # don't migrate targets that are already in github-cloud-app
+            if url and url in organized_cloud_targets["url"]:
                 print(f"There's already a github-cloud-app target for: {url}, skipping")
                 self.ignored.append(gh_t)
                 continue
+
             if display_name in organized_cloud_targets["display_name"]:
                 print(
                     f"There's already a github-cloud-app target for: {display_name}, skipping"
                 )
                 self.ignored.append(gh_t)
                 continue
+
+            # if github_organizations is set, only migrate targets from those organizations
+            for gh_org in github_organizations:
+                migratable_targets.append(gh_t)
             migratable_targets.append(gh_t)
 
         return migratable_targets
+
+    def parse_github_cloud_organization_from_target(self, target):
+        """
+        Attempt to parse the GitHub organization name from a target object either through
+        the URL or the display name attributes
+        Args:
+            target (dict): Snyk target object
+        Returns:
+            str: GitHub organization name
+        """
+        url = target["attributes"]["url"]
+        display_name = target["attributes"]["display_name"]
+
+        if url and url.startswith("https://github.com"):
+            return url.lstrip("https://github.com/").split("/")[0]
+
+        return display_name.split("/")[0]
 
     def migrate_target_to_github_cloud_app(self, org_id: str, target: dict):
         """Mgrate a target to github-cloud-app using the hidden API
