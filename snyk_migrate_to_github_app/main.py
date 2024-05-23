@@ -364,7 +364,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             # if github_organizations is set, only migrate targets from those organizations
             if gh_org not in github_organizations:
                 logger.info(
-                    "Target not in specified github organization: %s != %s",
+                    "Target not in specified github organizations: %s not in %s",
                     gh_org,
                     github_organizations,
                 )
@@ -386,16 +386,17 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         url = target["attributes"].get("url", "")
         display_name = target["attributes"]["display_name"]
 
-        logger.info("Target url: %s, name: %s", url, display_name)
+        logger.info("Target URL: %s, Name: %s", url, display_name)
         if url.startswith("http"):
-            if url.startswith("https://github.com"):
-                return url.lstrip("https://github.com/").split("/")[0]
-            logger.info("%s not pointing to github.com, skipping", url)
-            return ""
+            if not url.startswith("https://github.com"):
+                logger.info("URL not pointing to github.com, skipping: %s", url)
+                return ""
+            return url.replace("https://github.com/", "").split("/")[0]
 
         if "/" not in display_name:
             return ""
 
+        # best guess
         return display_name.split("/")[0]
 
     def migrate_target_to_github_cloud_app(self, org_id: str, target: dict):
