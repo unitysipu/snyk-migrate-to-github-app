@@ -5,15 +5,22 @@ Primary logic for the CLI Tool
 # ===== IMPORTS =====
 
 import json
+import logging
 
+import coloredlogs
 import requests
 import typer
 from rich import print
 from typing_extensions import Annotated
 
-# import http.client as http_client  # NOSONAR
+FORMAT = "[%(asctime)s] [%(process)d:%(threadName)s] [%(levelname)s] [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
 
-# http_client.HTTPConnection.debuglevel = 1  # NOSONAR
+logger = logging.getLogger(__name__)
+coloredlogs.install(level="DEBUG", fmt=FORMAT)
+
+# Uncomment these to debug HTTP requests
+# import http.client as http_client
+# http_client.HTTPConnection.debuglevel = 1
 
 
 # ===== CONSTANTS =====
@@ -83,8 +90,8 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                 headers=self.headers,
                 timeout=SNYK_API_TIMEOUT_DEFAULT,
             )
-        except requests.ConnectionError:
-            print(f"Unable to connect to Snyk API: {url}")
+        except requests.ConnectionError as exc:
+            logger.error("Unable to connect to Snyk API: %s -> %s", url, exc)
             raise
 
         if response.status_code != 200:
@@ -99,14 +106,14 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         if not self.group_organizations:
             raise ValueError("No organizations found in Snyk account")
 
-        print(f"Found group organizations: {len(self.group_organizations)}")
+        logger.info("Found group organizations: %s", len(self.group_organizations))
 
     def set_base_url_by_tenant(self, tenant: str):
         """
         Update the base URLs for the Snyk APIs based on the tenant
         """
 
-        print(f"Updating base URLs to tenant: {tenant}")
+        logger.info("Updating base URLs to tenant: %s", tenant)
         if tenant == "au":
             self.rest_api_base_url = SNYK_REST_API_BASE_URL_AU
             self.v1_api_base_url = SNYK_V1_API_BASE_URL_AU
@@ -114,8 +121,8 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             self.rest_api_base_url = SNYK_REST_API_BASE_URL_EU
             self.v1_api_base_url = SNYK_V1_API_BASE_URL_EU
 
-        print(f"REST API Base URL: {self.rest_api_base_url}")
-        print(f"V1 API Base URL: {self.v1_api_base_url}")
+        logger.info("REST API Base URL: %s", self.rest_api_base_url)
+        logger.info("V1 API Base URL %s:", self.v1_api_base_url)
 
     def get_org_by_slug(self, org_slug: str):
         """
@@ -166,7 +173,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                 timeout=SNYK_API_TIMEOUT_DEFAULT,
             )
         except requests.ConnectionError:
-            print(f"Unable to connect to Snyk API: {url}")
+            logger.error("Unable to connect to Snyk API: {url}")
             raise
 
         if response.status_code != 200:
@@ -177,7 +184,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         response.raise_for_status()
 
         integrations = json.loads(response.content)
-        print(f"Found integrations for org ID: {org_id}: {integrations}")
+        logger.info("Found integrations for org ID: %s: %s", org_id, integrations)
         return integrations
 
     def get_targets_by_origin(self, org_id: str, origin: str) -> list:
@@ -191,7 +198,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
 
         """
 
-        print(f"Collecting targets for origin: {origin}")
+        logger.info("Collecting targets for origin: %s", origin)
 
         targets = []
 
@@ -213,7 +220,6 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                 timeout=SNYK_API_TIMEOUT_DEFAULT,
             )
 
-            # print(f"Response: {vars(response)}")
             response.raise_for_status()
 
             response_json = json.loads(response.content)
@@ -269,20 +275,24 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             org = self.get_org_by_id(org_id)
             if not org:
                 raise ValueError(f"Organization not found: {org_id}")
-            print(f"Found organization by ID {org_id}: {org}")
+            logger.info("Found organization by ID: %s: %s", org_id, org)
             return [org]
 
         if org_slug:
             org = self.get_org_by_slug(org_slug)
             if not org:
                 raise ValueError(f"Organization not found: {org_slug}")
-            print(f"Found organization by slug {org_slug}: {org}")
+            logger.info("Found organization by slug: %s: %s", org_slug, org)
             return [org]
 
         raise ValueError("No organization(s) found")
 
     def find_migratable_targets(
-        self, org_id: str, org_integrations: dict, allowed_origins: list
+        self,
+        org_id: str,
+        org_integrations: dict,
+        allowed_origins: list,
+        github_organizations: list,
     ) -> list:
         """
         Locate migratable targets in a Snyk organization
@@ -296,7 +306,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         """
 
         if "github-cloud-app" not in org_integrations:
-            print(
+            logger.info(
                 "No GitHub Cloud App integration detected, please set up before migrating GitHub or GitHub Enterprise targets"
             )
             raise ValueError(
@@ -307,10 +317,10 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         organized_cloud_targets = self.organize_targets_by_name(github_cloud_targets)
 
         if github_cloud_targets:
-            print(f"github-cloud-app targets for {org_id}:")
-            print(organized_cloud_targets)
+            logger.info("github-cloud-app targets for: %s", org_id)
+            logger.info(organized_cloud_targets)
 
-        print(f"Searching for targets in allowed origins: {allowed_origins}")
+        logger.info("Searching for targets in allowed origins: {allowed_origins}")
 
         github_targets = []
         for i_origin in org_integrations:
@@ -323,36 +333,48 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             url = gh_t["attributes"]["url"]
             display_name = gh_t["attributes"]["display_name"]
             is_private = gh_t["attributes"]["is_private"]
+            gh_org = self.parse_github_cloud_organization_from_target(gh_t)
 
             # don't migrate public targets
             if not is_private:
-                print(
-                    f"Skipping public target: {display_name} in org: {org_id}, not private"
+                logger.info(
+                    "Skipping public target: %s in org: %s, not private",
+                    display_name,
+                    org_id,
                 )
                 self.ignored.append(gh_t)
                 continue
 
             # don't migrate targets that are already in github-cloud-app
             if url and url in organized_cloud_targets["url"]:
-                print(f"There's already a github-cloud-app target for: {url}, skipping")
+                logger.info(
+                    "There's already a github-cloud-app target for: %s, skipping", url
+                )
                 self.ignored.append(gh_t)
                 continue
 
             if display_name in organized_cloud_targets["display_name"]:
-                print(
-                    f"There's already a github-cloud-app target for: {display_name}, skipping"
+                logger.info(
+                    "There's already a github-cloud-app target for: %s, skipping",
+                    display_name,
                 )
                 self.ignored.append(gh_t)
                 continue
 
             # if github_organizations is set, only migrate targets from those organizations
-            for gh_org in github_organizations:
-                migratable_targets.append(gh_t)
+            if gh_org not in github_organizations:
+                logger.info(
+                    "Target not in specified github organization: %s != %s",
+                    gh_org,
+                    github_organizations,
+                )
+                self.ignored.append(gh_t)
+                continue
             migratable_targets.append(gh_t)
 
         return migratable_targets
 
-    def parse_github_cloud_organization_from_target(self, target):
+    def parse_github_cloud_organization_from_target(self, target: dict) -> str:
         """
         Attempt to parse the GitHub organization name from a target object either through
         the URL or the display name attributes
@@ -361,11 +383,18 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         Returns:
             str: GitHub organization name
         """
-        url = target["attributes"]["url"]
+        url = target["attributes"].get("url", "")
         display_name = target["attributes"]["display_name"]
 
-        if url and url.startswith("https://github.com"):
-            return url.lstrip("https://github.com/").split("/")[0]
+        logger.info("Target url: %s, name: %s", url, display_name)
+        if url.startswith("http"):
+            if url.startswith("https://github.com"):
+                return url.lstrip("https://github.com/").split("/")[0]
+            logger.info("%s not pointing to github.com, skipping", url)
+            return ""
+
+        if "/" not in display_name:
+            return ""
 
         return display_name.split("/")[0]
 
@@ -416,15 +445,17 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             try:
                 res = self.migrate_target_to_github_cloud_app(org_id, target)
                 if res.status_code == 200:
-                    print(
-                        f"Migrated target: {target['id']} {target['attributes']['display_name']} to github-cloud-app"
+                    logger.info(
+                        "Migrated target: %s - %s to github-cloud-app",
+                        target["id"],
+                        target["attributes"]["display_name"],
                     )
                     self.migrated.append(target)
                 else:
-                    print(f"Error migrating target: {target}: {vars(res)}")
+                    logger.warning("Error migrating target: %s: %s", target, vars(res))
                     self.failed.append(target)
             except requests.HTTPError as exc:
-                print(f"ERROR: Failed to migrate target: {target}: {exc}")
+                logger.error("ERROR: Failed to migrate target: %s: %s", target, exc)
                 self.failed.append(target)
 
     @staticmethod
@@ -440,13 +471,13 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         """
 
         if "github-cloud-app" not in integrations:
-            print(
+            logger.info(
                 "No GitHub Cloud App integration detected, please set up before migrating GitHub or GitHub Enterprise targets"
             )
             raise ValueError("github-cloud-app integration not configured")
 
         if origin not in integrations:
-            print(f"No {origin} integration detected")
+            logger.info("No %s integration detected", origin)
             return False
 
         return True
@@ -492,7 +523,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
 
 
 @app.command()
-def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-locals
+def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-locals, dangerous-default-value
     snyk_token: Annotated[
         str,
         typer.Option(
@@ -531,6 +562,16 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
             envvar="SNYK_ORG_SLUG",
         ),
     ] = "",
+    # A large enterprise may have more than one github organization, the cloud app integration
+    # may be available in only a subset of these organizations. This option allows you to specify
+    # which github organizations to migrate targets from.
+    github_organizations: Annotated[
+        list[str],
+        typer.Option(
+            help="Comma separated list of GitHub organization names to migrate (default all)",
+            envvar="GITHUB_ORGS",
+        ),
+    ] = [],
     tenant: Annotated[
         str,
         typer.Option(
@@ -582,23 +623,30 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
             migrate_all_orgs=migrate_all_orgs, org_id=org_id, org_slug=org_slug
         )
         try:
+            migratable_targets = []
             for org in migratable_orgs:
                 slug = org["slug"]
-                print(f"Migrating organization: {slug}")
+                logger.info("Migrating snyk organization: {slug}")
                 org_id = org["id"]
                 org_integrations = snyk.get_org_integrations(org_id)
-                migratable_targets = snyk.find_migratable_targets(
-                    org_id, org_integrations, allowed_origins=allowed_origins
+                org_migratable_targets = snyk.find_migratable_targets(
+                    org_id,
+                    org_integrations,
+                    allowed_origins=allowed_origins,
+                    github_organizations=github_organizations,
                 )
-                if not migratable_targets:
-                    print("No targets to migrate for org: {slug}")
+                if not org_migratable_targets:
+                    logger.info("No targets to migrate for org: %s", slug)
                     continue
-                if dry_run:
-                    snyk.dry_run_targets(migratable_targets)
-                    continue
+                migratable_targets.extend(org_migratable_targets)
+
+            if dry_run:
+                snyk.dry_run_targets(migratable_targets)
+            else:
                 snyk.migrate_targets(org_id, migratable_targets)
+
         except ValueError as exc:
-            print(f"Failed to migrate: {org_id}: {exc}")
+            logger.error("Failed to migrate: %s: %s", org_id, exc)
             raise
     except (requests.ConnectionError, requests.HTTPError) as exc:
         raise ValueError(f"Failed to migrate targets: {exc}") from exc
@@ -609,4 +657,4 @@ def run():
     try:
         app()
     except ValueError as exc:
-        print(f"Error: {exc}")
+        logger.error(exc)
