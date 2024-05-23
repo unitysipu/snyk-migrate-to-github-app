@@ -13,7 +13,7 @@ import typer
 from rich import print
 from typing_extensions import Annotated
 
-FORMAT = "[%(asctime)s] [%(process)d:%(threadName)s] [%(levelname)s] [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
+FORMAT = "[%(asctime)s] [%(levelname)s] [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(level="DEBUG", fmt=FORMAT)
@@ -173,7 +173,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                 timeout=SNYK_API_TIMEOUT_DEFAULT,
             )
         except requests.ConnectionError:
-            logger.error("Unable to connect to Snyk API: {url}")
+            logger.error("Unable to connect to Snyk API: %s", url)
             raise
 
         if response.status_code != 200:
@@ -320,7 +320,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             logger.info("github-cloud-app targets for: %s", org_id)
             logger.info(organized_cloud_targets)
 
-        logger.info("Searching for targets in allowed origins: {allowed_origins}")
+        logger.info("Searching for targets in allowed origins: %s", allowed_origins)
 
         github_targets = []
         for i_origin in org_integrations:
@@ -569,8 +569,7 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
     github_organizations: Annotated[
         list[str],
         typer.Option(
-            help="Comma separated list of GitHub organization names to migrate (default all)",
-            envvar="GITHUB_ORGS",
+            help="GitHub organization name to migrate (default all), pass multiple by repeating this argument",
         ),
     ] = [],
     tenant: Annotated[
@@ -627,7 +626,7 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
             migratable_targets = []
             for org in migratable_orgs:
                 slug = org["slug"]
-                logger.info("Migrating snyk organization: {slug}")
+                logger.info("Migrating snyk organization: %s", slug)
                 org_id = org["id"]
                 org_integrations = snyk.get_org_integrations(org_id)
                 org_migratable_targets = snyk.find_migratable_targets(
@@ -637,7 +636,7 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
                     github_organizations=github_organizations,
                 )
                 if not org_migratable_targets:
-                    logger.info("No targets to migrate for org: %s", slug)
+                    logger.warning("No targets to migrate for org: %s", slug)
                     continue
                 migratable_targets.extend(org_migratable_targets)
 
