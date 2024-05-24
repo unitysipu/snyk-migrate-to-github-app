@@ -124,7 +124,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         logger.info("REST API Base URL: %s", self.rest_api_base_url)
         logger.info("V1 API Base URL %s:", self.v1_api_base_url)
 
-    def get_org_by_slug(self, org_slug: str):
+    def get_org_by_slug(self, org_slug: str) -> dict:
         """
         Retrieve a Snyk organization by name
         Args:
@@ -137,9 +137,9 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             if org["slug"] == org_slug:
                 return org
 
-        return None
+        return {}
 
-    def get_org_by_id(self, org_id: str):
+    def get_org_by_id(self, org_id: str) -> dict:
         """
         Retrieve a Snyk organization by ID
         Args:
@@ -152,9 +152,9 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             if org["id"] == org_id:
                 return org
 
-        return None
+        return {}
 
-    def get_org_integrations(self, org_id):
+    def get_org_integrations(self, org_id: str) -> dict:
         """Gets all integrations for a snyk organization
 
         Args:
@@ -234,7 +234,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
 
         return targets
 
-    def organize_targets_by_name(self, targets: list) -> dict:
+    def organize_targets_by_name_and_url(self, targets: list) -> dict:
         """
         Helper function to collect target URLs or displaynames from a list of targets
         This allows doing quick lookups for existing targets by URL or if not available, by name
@@ -314,7 +314,9 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             )
 
         github_cloud_targets = self.get_targets_by_origin(org_id, "github-cloud-app")
-        organized_cloud_targets = self.organize_targets_by_name(github_cloud_targets)
+        organized_cloud_targets = self.organize_targets_by_name_and_url(
+            github_cloud_targets
+        )
 
         if github_cloud_targets:
             logger.info("github-cloud-app targets for: %s", org_id)
@@ -383,11 +385,11 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         Returns:
             str: GitHub organization name
         """
-        url = target["attributes"].get("url", "")
+        url = target["attributes"].get("url")
         display_name = target["attributes"]["display_name"]
 
         logger.info("Target URL: %s, Name: %s", url, display_name)
-        if url.startswith("http"):
+        if url and url.startswith("http"):
             if not url.startswith("https://github.com"):
                 logger.info("URL not pointing to github.com, skipping: %s", url)
                 return ""
@@ -399,7 +401,9 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         # best guess
         return display_name.split("/")[0]
 
-    def migrate_target_to_github_cloud_app(self, org_id: str, target: dict):
+    def migrate_target_to_github_cloud_app(
+        self, org_id: str, target: dict
+    ) -> requests.Response:
         """Mgrate a target to github-cloud-app using the hidden API
 
         Args:
@@ -460,7 +464,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                 self.failed.append(target)
 
     @staticmethod
-    def verify_org_integrations(integrations: dict, origin: str):
+    def verify_org_integrations(integrations: dict, origin: str) -> bool:
         """Helper function to make sure the Snyk Organization has the relevant github integrations set up
 
         Args:
@@ -484,7 +488,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         return True
 
     @staticmethod
-    def log_target(target: dict):
+    def log_target(target: dict) -> str:
         """
         Logging helper for targets
         Args: target (dict): Target to be logged
