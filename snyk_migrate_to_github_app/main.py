@@ -10,7 +10,7 @@ import logging
 import coloredlogs
 import requests
 import typer
-from rich import print
+import rich
 from typing_extensions import Annotated
 
 FORMAT = "[%(asctime)s] [%(levelname)s] [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
@@ -528,10 +528,10 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         """Prints out the results of the migration"""
         for topic in self.results:  # pylint: disable=consider-using-dict-items
             for _, result in self.results[topic].items():
-                print(f"{topic.capitalize()}: {self.log_result(result)} ")
+                rich.print(f"{topic.capitalize()}: {self.log_result(result)} ")
 
         for topic in self.results:  # pylint: disable=consider-using-dict-items
-            print(f"{topic.capitalize()} targets: {len(self.results[topic])}")
+            rich.print(f"{topic.capitalize()} targets: {len(self.results[topic])}")
 
     def dry_run_targets(self, targets):
         """Print targets that would get migrated to GitHub App integration without migrating them
@@ -603,10 +603,10 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
             envvar="SNYK_TENANT",
         ),
     ] = "",
-    dry_run: Annotated[
+    deploy: Annotated[
         bool,
-        typer.Option(help="Print names of targets to be migrated without migrating"),
-    ] = True,
+        typer.Option(help="Deploy changes for real, defaults to dry-run"),
+    ] = False,
     verbose: bool = False,
 ):
     """CLI Tool to help you migrate your targets from the GitHub or GitHub Enterprise integration to the new GitHub App Integration"""
@@ -641,6 +641,15 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
 
     snyk = SnykMigrationFacade(snyk_token, tenant=tenant)
 
+    if deploy is False:
+        rich.print()
+        rich.print("[bold green]DRY-RUN MODE: NO CHANGES WILL BE MADE[/bold green]")
+        rich.print()
+    else:
+        rich.print()
+        rich.print("[bold red]DEPLOY MODE: MIGRATING FOR REAL![/bold red]")
+        rich.print()
+
     try:
         snyk.get_all_group_organizations()
         migratable_orgs = snyk.get_migratable_orgs(
@@ -664,10 +673,10 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
                     continue
                 migratable_targets.extend(org_migratable_targets)
 
-            if dry_run:
-                snyk.dry_run_targets(migratable_targets)
-            else:
+            if deploy is True:
                 snyk.migrate_targets(org_id, migratable_targets)
+            else:
+                snyk.dry_run_targets(migratable_targets)
 
         except ValueError as exc:
             logger.error("Failed to migrate: %s: %s", org_id, exc)
