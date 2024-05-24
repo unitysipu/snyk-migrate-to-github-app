@@ -68,9 +68,11 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             "Content-Type": "application/json",
         }
 
-        self.ignored = []
-        self.migrated = []
-        self.failed = []
+        self.results = {
+            "migrated": {},
+            "failed": {},
+            "ignored": {},
+        }
         self.group_organizations = []
         if tenant:
             self.set_base_url_by_tenant(tenant)
@@ -333,6 +335,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         migratable_targets = []
         for gh_t in github_targets:
             url = gh_t["attributes"]["url"]
+            _id = gh_t["id"]
             display_name = gh_t["attributes"]["display_name"]
             is_private = gh_t["attributes"]["is_private"]
             gh_org = self.parse_github_cloud_organization_from_target(gh_t)
@@ -344,7 +347,10 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                     display_name,
                     org_id,
                 )
-                self.ignored.append(gh_t)
+                self.results["ignored"][_id] = {
+                    "target": gh_t,
+                    "reason": "public target",
+                }
                 continue
 
             # don't migrate targets that are already in github-cloud-app
@@ -352,7 +358,6 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                 logger.info(
                     "There's already a github-cloud-app target for: %s, skipping", url
                 )
-                self.ignored.append(gh_t)
                 continue
 
             if display_name in organized_cloud_targets["display_name"]:
@@ -360,17 +365,23 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                     "There's already a github-cloud-app target for: %s, skipping",
                     display_name,
                 )
-                self.ignored.append(gh_t)
+                self.results["ignored"][_id] = {
+                    "target": gh_t,
+                    "reason": "conflicting github-cloud-app target",
+                }
                 continue
 
             # if github_organizations is set, only migrate targets from those organizations
-            if gh_org not in github_organizations:
+            if github_organizations and gh_org not in github_organizations:
                 logger.info(
                     "Target not in specified github organizations: %s not in %s",
                     gh_org,
                     github_organizations,
                 )
-                self.ignored.append(gh_t)
+                self.results["ignored"][_id] = {
+                    "target": gh_t,
+                    "reason": "not in specified github organizations",
+                }
                 continue
             migratable_targets.append(gh_t)
 
@@ -388,7 +399,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         url = target["attributes"].get("url")
         display_name = target["attributes"]["display_name"]
 
-        logger.info("Target URL: %s, Name: %s", url, display_name)
+        logger.info("Name: %s, Target URL:%s", display_name, url)
         if url and url.startswith("http"):
             if not url.startswith("https://github.com"):
                 logger.info("URL not pointing to github.com, skipping: %s", url)
@@ -447,21 +458,31 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         """
 
         for target in targets:
+            t_id = target["id"]
             try:
                 res = self.migrate_target_to_github_cloud_app(org_id, target)
                 if res.status_code == 200:
                     logger.info(
                         "Migrated target: %s - %s to github-cloud-app",
-                        target["id"],
+                        t_id,
                         target["attributes"]["display_name"],
                     )
-                    self.migrated.append(target)
+                    self.results["migrated"][t_id] = {
+                        "target": target,
+                        "reason": "OK",
+                    }
                 else:
                     logger.warning("Error migrating target: %s: %s", target, vars(res))
-                    self.failed.append(target)
+                    self.results["failed"][t_id] = {
+                        "target": target,
+                        "reason": vars(res),
+                    }
             except requests.HTTPError as exc:
                 logger.error("ERROR: Failed to migrate target: %s: %s", target, exc)
-                self.failed.append(target)
+                self.results["failed"][t_id] = {
+                    "target": target,
+                    "reason": exc,
+                }
 
     @staticmethod
     def verify_org_integrations(integrations: dict, origin: str) -> bool:
@@ -488,33 +509,29 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         return True
 
     @staticmethod
-    def log_target(target: dict) -> str:
+    def log_result(result: dict) -> str:
         """
         Logging helper for targets
         Args: target (dict): Target to be logged
         """
+        target = result["target"]
+        reason = result["reason"]
         origin = target["relationships"]["integration"]["data"]["attributes"][
             "integration_type"
         ]
         t_id = target["id"]
         name = target["attributes"]["display_name"]
         url = target["attributes"]["url"]
-        return f"ID: {t_id}, Name: {name}, Origin: {origin}, URL: {url}"
+        return f"ID: {t_id}, Name: {name}, Origin: {origin}, URL: {url}, Reason: {reason.capitalize()}"
 
     def show_results(self):
         """Prints out the results of the migration"""
-        for target in self.migrated:
-            print(f"Migrated: {self.log_target(target)}")
+        for topic in self.results:  # pylint: disable=consider-using-dict-items
+            for _, result in self.results[topic].items():
+                print(f"{topic.capitalize()}: {self.log_result(result)} ")
 
-        for target in self.failed:
-            print(f"Failed: {self.log_target(target)}")
-
-        for target in self.ignored:
-            print(f"Ignored: {self.log_target(target)}")
-
-        print(f"Migrated targets: {len(self.migrated)}")
-        print(f"Failed targets: {len(self.failed)}")
-        print(f"Ignored targets: {len(self.ignored)}")
+        for topic in self.results:  # pylint: disable=consider-using-dict-items
+            print(f"{topic.capitalize()} targets: {len(self.results[topic])}")
 
     def dry_run_targets(self, targets):
         """Print targets that would get migrated to GitHub App integration without migrating them
@@ -523,7 +540,10 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             targets: List of targets to be logged
         """
         for target in targets:
-            self.migrated.append(target)
+            self.results["migrated"][target["id"]] = {
+                "target": target,
+                "reason": "dry-run",
+            }
         self.show_results()
 
 
