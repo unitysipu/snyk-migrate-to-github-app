@@ -62,6 +62,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         self.snyk_token = snyk_token
         self.tenant = tenant
         self.rest_api_base_url = SNYK_REST_API_BASE_URL
+        self.hidden_api_base_url = SNYK_HIDDEN_API_BASE_URL
         self.v1_api_base_url = SNYK_V1_API_BASE_URL
 
         self.headers = {
@@ -120,9 +121,11 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         if tenant == "au":
             self.rest_api_base_url = SNYK_REST_API_BASE_URL_AU
             self.v1_api_base_url = SNYK_V1_API_BASE_URL_AU
+            self.hidden_api_base_url = SNYK_HIDDEN_API_BASE_URL_AU
         if tenant == "eu":
             self.rest_api_base_url = SNYK_REST_API_BASE_URL_EU
             self.v1_api_base_url = SNYK_V1_API_BASE_URL_EU
+            self.hidden_api_base_url = SNYK_HIDDEN_API_BASE_URL_EU
 
         logger.info("REST API Base URL: %s", self.rest_api_base_url)
         logger.info("V1 API Base URL %s:", self.v1_api_base_url)
@@ -428,7 +431,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             "Authorization": f"token {self.snyk_token}",
         }
 
-        url = f"{self.rest_api_base_url}/orgs/{org_id}/targets/{target['id']}?version={SNYK_HIDDEN_API_VERSION}"
+        url = f"{self.hidden_api_base_url}/orgs/{org_id}/targets/{target['id']}?version={SNYK_HIDDEN_API_VERSION}"
 
         body = json.dumps(
             {
