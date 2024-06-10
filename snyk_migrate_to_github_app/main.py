@@ -12,6 +12,7 @@ import requests
 import typer
 import rich
 from typing_extensions import Annotated
+from http import HTTPStatus
 
 FORMAT = "[%(asctime)s] [%(levelname)s] [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
 
@@ -446,7 +447,6 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             timeout=SNYK_API_TIMEOUT_DEFAULT,
         )
 
-        response.raise_for_status()
         return response
 
     def migrate_targets(self, org_id: str, targets: list):
@@ -461,7 +461,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             t_id = target["id"]
             try:
                 res = self.migrate_target_to_github_cloud_app(org_id, target)
-                if res.status_code == 200:
+                if res.status_code == HTTPStatus.OK:
                     logger.info(
                         "Migrated target: %s - %s to github-cloud-app",
                         t_id,
@@ -470,6 +470,16 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                     self.results["migrated"][t_id] = {
                         "target": target,
                         "reason": "OK",
+                    }
+                elif res.status_code == HTTPStatus.CONFLICT:
+                    logger.warning(
+                        "Target already migrated: %s: %s",
+                        target["id"],
+                        target["attributes"],
+                    )
+                    self.results["ignored"][t_id] = {
+                        "target": target,
+                        "reason": "already migrated",
                     }
                 else:
                     logger.warning("Error migrating target: %s: %s", target, vars(res))
