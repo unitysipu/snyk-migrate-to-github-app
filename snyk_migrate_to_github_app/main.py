@@ -279,7 +279,8 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
     def organize_targets_by_name_and_url(self, targets: list) -> dict:
         """
         Helper function to collect target URLs or displaynames from a list of targets
-        This allows doing quick lookups for existing targets by URL or if not available, by name
+        This allows doing quick lookups for existing targets by URL or if not available,
+        by name
 
         Args:
             targets (list): List of targets to collect URLs from
@@ -287,12 +288,11 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         Returns:
             list: List of target URLs
         """
-        organized_targets = {"url": [], "display_name": []}
+        organized_targets = {}
         for target in targets:
-            organized_targets["url"].append(target["attributes"]["url"])
-            organized_targets["display_name"].append(
-                target["attributes"]["display_name"]
-            )
+            t_url = target["attributes"]["url"]
+            t_name = target["attributes"]["display_name"]
+            organized_targets[t_name] = t_url
 
         return organized_targets
 
@@ -393,14 +393,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                 }
                 continue
 
-            # don't migrate targets that are already in github-cloud-app
-            if url and url in organized_cloud_targets["url"]:
-                logger.info(
-                    "There's already a github-cloud-app target for: %s, skipping", url
-                )
-                continue
-
-            if display_name in organized_cloud_targets["display_name"]:
+            if display_name in organized_cloud_targets:
                 logger.info(
                     "There's already a github-cloud-app target for: %s, skipping",
                     display_name,
@@ -410,6 +403,18 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                     "reason": "conflicting github-cloud-app target",
                 }
                 continue
+
+            for _, t_url in organized_cloud_targets:
+                if url == t_url:
+                    logger.info(
+                        "There's already a github-cloud-app target for: %s, skipping",
+                        url,
+                    )
+                    self.results["ignored"][_id] = {
+                        "target": gh_t,
+                        "reason": "conflicting github-cloud-app target",
+                    }
+                    continue
 
             # if github_organizations is set, only migrate targets from those organizations
             if github_organizations and gh_org not in github_organizations:
