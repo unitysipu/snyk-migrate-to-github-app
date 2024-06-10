@@ -6,18 +6,54 @@ Primary logic for the CLI Tool
 
 import json
 import logging
+import os
+from http import HTTPStatus
+from logging.config import dictConfig
 
-import coloredlogs
+import coloredlogs  # pylint: disable=unused-import
 import requests
 import typer
-import rich
 from typing_extensions import Annotated
-from http import HTTPStatus
 
 FORMAT = "[%(asctime)s] [%(levelname)s] [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
 
+LEVEL = "INFO"
+if os.getenv("DEBUG"):
+    LEVEL = "DEBUG"
+
+logging_config = {
+    "version": 1,
+    "formatters": {
+        "default": {
+            "()": "coloredlogs.ColoredFormatter",
+            "format": FORMAT,
+        },
+        "file": {
+            "format": FORMAT,
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "default",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": "snyk-migrate-to-github-app.log",
+            "mode": "a",
+            "formatter": "file",
+        },
+    },
+    "root": {
+        "level": LEVEL,
+        "handlers": ["console", "file"],
+        "datefmt": "%Y-%m-%d %H:%M:%S",
+    },
+}
+
+dictConfig(logging_config)
 logger = logging.getLogger(__name__)
-coloredlogs.install(level="DEBUG", fmt=FORMAT)
 
 # Uncomment these to debug HTTP requests
 # import http.client as http_client
@@ -293,7 +329,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
 
         raise ValueError("No organization(s) found")
 
-    def find_migratable_targets(
+    def find_migratable_targets(  # pylint: disable=too-many-locals
         self,
         org_id: str,
         org_integrations: dict,
@@ -541,10 +577,10 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         """Prints out the results of the migration"""
         for topic in self.results:  # pylint: disable=consider-using-dict-items
             for _, result in self.results[topic].items():
-                rich.print(f"{topic.capitalize()}: {self.log_result(result)} ")
+                logger.info("%s: %s", topic.capitalize(), self.log_result(result))
 
         for topic in self.results:  # pylint: disable=consider-using-dict-items
-            rich.print(f"{topic.capitalize()} targets: {len(self.results[topic])}")
+            logger.info("%s: targets: %s", topic.capitalize(), len(self.results[topic]))
 
     def dry_run_targets(self, targets):
         """Print targets that would get migrated to GitHub App integration without migrating them
@@ -655,13 +691,9 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
     snyk = SnykMigrationFacade(snyk_token, tenant=tenant)
 
     if deploy is False:
-        rich.print()
-        rich.print("[bold green]DRY-RUN MODE: NO CHANGES WILL BE MADE[/bold green]")
-        rich.print()
+        logger.warning("DRY-RUN MODE: NO CHANGES WILL BE MADE")
     else:
-        rich.print()
-        rich.print("[bold red]DEPLOY MODE: MIGRATING FOR REAL![/bold red]")
-        rich.print()
+        logger.warning("DEPLOY MODE: MIGRATING FOR REAL!")
 
     try:
         snyk.get_all_group_organizations()
