@@ -9,6 +9,7 @@ import logging
 import os
 from http import HTTPStatus
 from logging.config import dictConfig
+from urllib.parse import urljoin
 
 import coloredlogs  # pylint: disable=unused-import
 import requests
@@ -40,7 +41,7 @@ logging_config = {
         },
         "file": {
             "class": "logging.FileHandler",
-            "filename": "snyk-migrate-to-github-app.log",
+            "filename": "snyk_migrate_to_github_app.log",
             "mode": "a",
             "formatter": "file",
         },
@@ -267,12 +268,12 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             response_json = json.loads(response.content)
             targets.extend(response_json.get("data", []))
 
-            if (
-                "next" not in response_json["links"]
-                or response_json["links"]["next"] == ""
-            ):
+            next = response_json["links"].get("next")
+            if not next or next == "":
                 break
-            url = f"{self.rest_api_base_url}/{response_json['links']['next']}"
+            url = urljoin(self.rest_api_base_url, response_json["links"]["next"])
+            # these are already encoded in the next URL
+            params = {}
 
         return targets
 
@@ -348,12 +349,10 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         """
 
         if "github-cloud-app" not in org_integrations:
-            logger.info(
+            logger.error(
                 "No GitHub Cloud App integration detected, please set up before migrating GitHub or GitHub Enterprise targets"
             )
-            raise ValueError(
-                f"github-cloud-app integration not configured to org ID: {org_id}"
-            )
+            return []
 
         github_cloud_targets = self.get_targets_by_origin(org_id, "github-cloud-app")
         organized_cloud_targets = self.organize_targets_by_name_and_url(
@@ -414,7 +413,8 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                 }
                 continue
 
-            for _, t_url in organized_cloud_targets:
+            for t_url in organized_cloud_targets.values():
+                logger.debug("Target URL: %s", t_url)
                 if url == t_url:
                     logger.info(
                         "There's already a github-cloud-app target for: %s, skipping",
@@ -455,7 +455,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         url = target["attributes"].get("url")
         display_name = target["attributes"]["display_name"]
 
-        logger.info("Name: %s, Target URL:%s", display_name, url)
+        logger.debug("Name: %s, Target URL:%s", display_name, url)
         if url and url.startswith("http"):
             if not url.startswith("https://github.com"):
                 logger.info("URL not pointing to github.com, skipping: %s", url)
@@ -740,9 +740,10 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
                 snyk.dry_run_targets(migratable_targets)
 
         except ValueError as exc:
-            logger.error("Failed to migrate: %s: %s", org_id, exc)
+            logger.error("Failed to migrate: %s: %s", org_id, exc, exc_info=True)
             raise
     except (requests.ConnectionError, requests.HTTPError) as exc:
+        logger.error(exc, exc_info=True)
         raise ValueError(f"Failed to migrate targets: {exc}") from exc
 
 
