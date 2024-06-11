@@ -361,8 +361,11 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         )
 
         if github_cloud_targets:
-            logger.info("github-cloud-app targets for: %s", org_id)
-            logger.info(organized_cloud_targets)
+            logger.info(
+                "Org ID: %s, github-cloud-app targets: %s",
+                org_id,
+                len(github_cloud_targets),
+            )
 
         logger.info("Searching for targets in allowed origins: %s", allowed_origins)
 
@@ -370,7 +373,14 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
         for i_origin in org_integrations:
             if i_origin not in allowed_origins:
                 continue
-            github_targets.extend(self.get_targets_by_origin(org_id, i_origin))
+            o_targets = self.get_targets_by_origin(org_id, i_origin)
+            logger.info(
+                "Org ID: %s, targets for origin: %s: %s",
+                org_id,
+                i_origin,
+                len(o_targets),
+            )
+            github_targets.extend(o_targets)
 
         migratable_targets = []
         for gh_t in github_targets:
@@ -430,6 +440,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                 continue
             migratable_targets.append(gh_t)
 
+        logger.info("Found migratable targets: %s", len(migratable_targets))
         return migratable_targets
 
     def parse_github_cloud_organization_from_target(self, target: dict) -> str:
