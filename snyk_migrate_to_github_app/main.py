@@ -511,7 +511,6 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
             org_id (str): Snyk Organization ID
             targets (list): List of targets to be migrated
         """
-
         for target in targets:
             t_id = target["id"]
             try:
@@ -540,7 +539,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                     logger.warning("Error migrating target: %s: %s", target, vars(res))
                     self.results["failed"][t_id] = {
                         "target": target,
-                        "reason": vars(res),
+                        "reason": str(vars(res)),
                     }
             except requests.HTTPError as exc:
                 logger.error("ERROR: Failed to migrate target: %s: %s", target, exc)
@@ -548,6 +547,7 @@ class SnykMigrationFacade:  # pylint: disable=too-many-instance-attributes
                     "target": target,
                     "reason": exc,
                 }
+        self.show_results()
 
     @staticmethod
     def verify_org_integrations(integrations: dict, origin: str) -> bool:
@@ -733,11 +733,10 @@ def main(  # pylint: disable=too-many-arguments, too-many-branches, too-many-loc
                     logger.warning("No targets to migrate for org: %s", slug)
                     continue
                 migratable_targets.extend(org_migratable_targets)
-
-            if deploy is True:
-                snyk.migrate_targets(org_id, migratable_targets)
-            else:
-                snyk.dry_run_targets(migratable_targets)
+                if deploy is True:
+                    snyk.migrate_targets(org_id, org_migratable_targets)
+                else:
+                    snyk.dry_run_targets(org_migratable_targets)
 
         except ValueError as exc:
             logger.error("Failed to migrate: %s: %s", org_id, exc, exc_info=True)
